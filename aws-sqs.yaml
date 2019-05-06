@@ -5,6 +5,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties: 
       QueueName: "CHAOSSEARCHQueue"
+      VisibilityTimeout: 300
 Outputs: 
   QueueURL: 
     Description: "URL of newly created SQS Queue"
