@@ -1,0 +1,200 @@
+---
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CHAOSSEARCH AWS Integration
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+    - Label:
+        default: CHAOSSEARCH Build
+      Parameters:
+      - CSAccountID
+      - CSExternalID
+      - CSBucketName
+      - CSQueueName
+      - CSTopicName
+      - S3Event
+    ParameterLabels:
+      CSAccountID:
+        default: The Chaossearch Account
+      CSExternalID:
+        default:  Add your Chaossearch External ID
+      CSBucketName:
+        default:  Name of the S3 bucket
+      CSQueueName:
+        default:  Name of the SQS Queue
+      CSTopicName:
+        default:  Name of the Topic
+      S3Event:
+        default: Only Objects Created
+Parameters:
+  CSAccountID:
+    Description: The provided Chaossearch Account ID
+    Type: String
+    Default: 515570774723
+  CSExternalID:
+    Description:  The provided CHAOSSEARCH External ID
+    Type: String
+  CSBucketName: 
+    Description:  The desired CHAOSSEARCH S3 bucket name. lower-case names only
+    Type: String
+  CSQueueName:
+    Description:  Input the name of the SQS Queue
+    Type: String
+  CSTopicName:  
+    Description:  SNS topic name for S3 subscription
+    Type: String
+  S3Event:
+    Description:  SNS topic event to monitor for S3 subscription
+    Type: String
+    Default: s3:ObjectCreated:*
+Resources:
+  ChaosSQSQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Ref: CSQueueName
+      VisibilityTimeout: 300
+  MySQSQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      PolicyDocument:
+        Version: '2008-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: "*"
+          Action:
+          - SQS:SendMessage
+          Resource: "*"
+          Condition:
+            ArnEquals:
+              aws:SourceArn:
+                Ref: S3SNSTopic
+      Queues:
+      - Ref: ChaosSQSQueue
+  S3SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint:
+          Fn::GetAtt:
+          - ChaosSQSQueue
+          - Arn
+        Protocol: sqs
+      TopicName:
+        Ref: CSTopicName
+  MyTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: MyTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: s3.amazonaws.com
+          Action:
+          - SNS:Publish
+          Resource: "*"
+          Condition:
+            ArnLike:
+              aws:SourceArn:
+                Fn::Join:
+                - ''
+                - - 'arn:aws:s3:*:*:'
+                  - Ref: CSBucketName
+      Topics:
+      - Ref: S3SNSTopic
+  ChaosS3Bucket:
+    Type: AWS::S3::Bucket
+    DependsOn: MyTopicPolicy
+    Properties:
+      BucketName:
+        Ref: CSBucketName
+      NotificationConfiguration:
+        TopicConfigurations:
+        - Event:
+            Ref: S3Event
+          Topic:
+            Ref: S3SNSTopic
+  CHAOSSEARCHRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS:
+              Fn::Join:
+              - ''
+              - - 'arn:aws:iam::'
+                - Ref: CSAccountID
+                - ":root"
+          Action: sts:AssumeRole
+          Condition:
+            StringEquals:
+              sts:ExternalId:
+                Ref: CSExternalID
+  CHAOSSEARCHPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CHAOSSEARCHPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListAllMyBuckets
+          - s3:GetBucketLocation
+          Resource: "*"
+        - Effect: Allow
+          Action:
+          - s3:List*
+          Resource:
+          - Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: CSBucketName
+              - "/*"
+        - Effect: Allow
+          Action:
+          - s3:Get*
+          - s3:PutObjectTagging
+          Resource:
+          - Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: CSBucketName
+              - "/*"
+        - Effect: Allow
+          Action: "*"
+          Resource:
+          - Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: CSExternalID
+          - Fn::Join:
+            - ''
+            - - 'arn:aws:s3:::'
+              - Ref: CSExternalID
+              - "/*"
+      Roles:
+      - Ref: CHAOSSEARCHRole
+Outputs:
+  SQSSource:
+    Description: The name of the Chaossearch SQS Queue
+    Value: 
+      Fn::GetAtt:
+      - ChaosSQSQueue
+      - QueueName
+  RoleARN:
+    Description: The ARN of the new CHAOSSEARCH Role
+    Value:
+      Fn::GetAtt:
+      - CHAOSSEARCHRole
+      - Arn
+  S3Bucket:
+    Description: The name of the CHAOSSEARCH S3 bucket that was created
+    Value:
+      Ref: CSBucketName
